@@ -19,40 +19,45 @@ jobs:
           python-version: '3.12'
       - name: Fetch and inspect UP result page
         run: |
-          pip install requests beautifulsoup4
+          pip install requests beautifulsoup4 pandas openpyxl
           python - <<'PY'
-          import json, requests, urllib3
+          import json, requests, urllib3, pandas as pd
           from bs4 import BeautifulSoup
           urllib3.disable_warnings()
           url='https://upneet.gov.in/oncampusresultUG/resultuG.aspx'
-          s=requests.Session()
-          r=s.get(url, timeout=45, verify=False, headers={'User-Agent':'Mozilla/5.0'})
-          print('STATUS', r.status_code, 'URL', r.url, 'LEN', len(r.text))
-          open('page.html','w',encoding='utf-8').write(r.text)
+          s=requests.Session(); H={'User-Agent':'Mozilla/5.0'}
+          r=s.get(url, timeout=45, verify=False, headers=H)
           soup=BeautifulSoup(r.text,'html.parser')
-          out={'status':r.status_code,'url':r.url,'title':soup.title.get_text(' ',strip=True) if soup.title else None,'forms':[],'selects':[],'inputs':[],'tables':[]}
-          for f in soup.find_all('form'):
-            out['forms'].append({'id':f.get('id'),'name':f.get('name'),'action':f.get('action'),'method':f.get('method')})
-          for sel in soup.find_all('select'):
-            opts=[{'value':o.get('value'),'text':o.get_text(' ',strip=True),'selected':o.has_attr('selected')} for o in sel.find_all('option')]
-            out['selects'].append({'id':sel.get('id'),'name':sel.get('name'),'options':opts[:1000]})
+          data={}
           for inp in soup.find_all('input'):
+            n=inp.get('name')
+            if n and inp.get('type')=='hidden': data[n]=inp.get('value','')
+          data['ctl00$ContentPlaceHolder1$ddlstream']='3'
+          data['ctl00$ContentPlaceHolder1$Submit1']='Get Result'
+          r2=s.post(url, data=data, timeout=45, verify=False, headers=H)
+          open('page2.html','w',encoding='utf-8').write(r2.text)
+          soup2=BeautifulSoup(r2.text,'html.parser')
+          out={'status':r2.status_code,'url':r2.url,'selects':[],'inputs':[],'tables':[],'text':soup2.get_text(' ',strip=True)[:5000]}
+          for sel in soup2.find_all('select'):
+            opts=[{'value':o.get('value'),'text':o.get_text(' ',strip=True)} for o in sel.find_all('option')]
+            out['selects'].append({'id':sel.get('id'),'name':sel.get('name'),'options':opts})
+          for inp in soup2.find_all('input'):
             if inp.get('type') in ['submit','button','hidden']:
               out['inputs'].append({'type':inp.get('type'),'id':inp.get('id'),'name':inp.get('name'),'value':inp.get('value')})
-          for i,t in enumerate(soup.find_all('table')):
+          for i,t in enumerate(soup2.find_all('table')):
             rows=[]
-            for tr in t.find_all('tr')[:50]:
+            for tr in t.find_all('tr')[:100]:
               rows.append([c.get_text(' ',strip=True) for c in tr.find_all(['th','td'])])
-            out['tables'].append({'index':i,'id':t.get('id'),'class':t.get('class'),'rows':rows})
-          open('diagnostic.json','w',encoding='utf-8').write(json.dumps(out,ensure_ascii=False,indent=2))
-          print(json.dumps(out,ensure_ascii=False)[:30000])
+            out['tables'].append({'index':i,'id':t.get('id'),'rows':rows})
+          open('diagnostic2.json','w',encoding='utf-8').write(json.dumps(out,ensure_ascii=False,indent=2))
+          print(json.dumps(out,ensure_ascii=False)[:40000])
           PY
       - name: Upload diagnostic
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: up-result-diagnostic
+          name: up-result-diagnostic-2
           path: |
-            page.html
-            diagnostic.json
+            page2.html
+            diagnostic2.json
           retention-days: 1
