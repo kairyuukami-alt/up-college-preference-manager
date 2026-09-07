@@ -1,63 +1,47 @@
-name: UP Result Diagnostic
-
+name: UP Result Scrape
 on:
   push:
-    branches:
-      - tmp-up-result-scrape-2026-09-07
-
+    branches: [tmp-up-result-scrape-2026-09-07]
 permissions:
   contents: read
-
 jobs:
-  diagnose:
+  scrape:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Fetch and inspect UP result page
+        with: {python-version: '3.12'}
+      - name: Inspect allotted-list endpoint
         run: |
-          pip install requests beautifulsoup4 pandas openpyxl
+          pip install requests beautifulsoup4
           python - <<'PY'
-          import json, requests, urllib3, pandas as pd
+          import json, requests, urllib3
           from bs4 import BeautifulSoup
           urllib3.disable_warnings()
-          url='https://upneet.gov.in/oncampusresultUG/resultuG.aspx'
-          s=requests.Session(); H={'User-Agent':'Mozilla/5.0'}
-          r=s.get(url, timeout=45, verify=False, headers=H)
-          soup=BeautifulSoup(r.text,'html.parser')
-          data={}
-          for inp in soup.find_all('input'):
-            n=inp.get('name')
-            if n and inp.get('type')=='hidden': data[n]=inp.get('value','')
-          data['ctl00$ContentPlaceHolder1$ddlstream']='3'
-          data['ctl00$ContentPlaceHolder1$Submit1']='Get Result'
-          r2=s.post(url, data=data, timeout=45, verify=False, headers=H)
-          open('page2.html','w',encoding='utf-8').write(r2.text)
-          soup2=BeautifulSoup(r2.text,'html.parser')
-          out={'status':r2.status_code,'url':r2.url,'selects':[],'inputs':[],'tables':[],'text':soup2.get_text(' ',strip=True)[:5000]}
-          for sel in soup2.find_all('select'):
-            opts=[{'value':o.get('value'),'text':o.get_text(' ',strip=True)} for o in sel.find_all('option')]
-            out['selects'].append({'id':sel.get('id'),'name':sel.get('name'),'options':opts})
-          for inp in soup2.find_all('input'):
-            if inp.get('type') in ['submit','button','hidden']:
+          u='https://upneet.gov.in/oncampusresult/vseat_stream.aspx'
+          r=requests.get(u,verify=False,timeout=45,headers={'User-Agent':'Mozilla/5.0'})
+          print('STATUS',r.status_code,'LEN',len(r.text),'URL',r.url)
+          open('vseat.html','w',encoding='utf-8').write(r.text)
+          s=BeautifulSoup(r.text,'html.parser')
+          out={'selects':[],'inputs':[],'tables':[],'text':s.get_text(' ',strip=True)[:10000]}
+          for sel in s.find_all('select'):
+            out['selects'].append({'id':sel.get('id'),'name':sel.get('name'),'options':[{'value':o.get('value'),'text':o.get_text(' ',strip=True)} for o in sel.find_all('option')]})
+          for inp in s.find_all('input'):
+            if inp.get('type') in ['hidden','submit','button']:
               out['inputs'].append({'type':inp.get('type'),'id':inp.get('id'),'name':inp.get('name'),'value':inp.get('value')})
-          for i,t in enumerate(soup2.find_all('table')):
+          for i,t in enumerate(s.find_all('table')):
             rows=[]
-            for tr in t.find_all('tr')[:100]:
-              rows.append([c.get_text(' ',strip=True) for c in tr.find_all(['th','td'])])
+            for tr in t.find_all('tr')[:100]: rows.append([c.get_text(' ',strip=True) for c in tr.find_all(['th','td'])])
             out['tables'].append({'index':i,'id':t.get('id'),'rows':rows})
-          open('diagnostic2.json','w',encoding='utf-8').write(json.dumps(out,ensure_ascii=False,indent=2))
+          open('vseat.json','w',encoding='utf-8').write(json.dumps(out,ensure_ascii=False,indent=2))
           print(json.dumps(out,ensure_ascii=False)[:40000])
           PY
-      - name: Upload diagnostic
+      - uses: actions/upload-artifact@v4
         if: always()
-        uses: actions/upload-artifact@v4
         with:
-          name: up-result-diagnostic-2
+          name: up-vseat-diagnostic
           path: |
-            page2.html
-            diagnostic2.json
+            vseat.html
+            vseat.json
           retention-days: 1
