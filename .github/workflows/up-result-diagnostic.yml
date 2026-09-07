@@ -12,38 +12,42 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: {python-version: '3.12'}
-      - name: Inspect allotted-list endpoint
+      - name: Open UG allotted candidates branch
         run: |
           pip install requests beautifulsoup4
           python - <<'PY'
           import json, requests, urllib3
           from bs4 import BeautifulSoup
           urllib3.disable_warnings()
-          u='https://upneet.gov.in/vaccant_result/vseat_stream.aspx'
-          r=requests.get(u,verify=False,timeout=60,headers={'User-Agent':'Mozilla/5.0'})
-          print('STATUS',r.status_code,'LEN',len(r.text),'URL',r.url)
-          open('vseat.html','w',encoding='utf-8').write(r.text)
-          s=BeautifulSoup(r.text,'html.parser')
-          out={'status':r.status_code,'url':r.url,'selects':[],'inputs':[],'tables':[],'links':[],'text':s.get_text(' ',strip=True)[:10000]}
-          for sel in s.find_all('select'):
+          u='https://upneet.gov.in/vaccant_result/vseat_stream.aspx'; H={'User-Agent':'Mozilla/5.0'}
+          ss=requests.Session(); r=ss.get(u,verify=False,timeout=60,headers=H); s=BeautifulSoup(r.text,'html.parser')
+          d={}
+          for x in s.find_all('input'):
+            if x.get('name') and x.get('type')=='hidden': d[x['name']]=x.get('value','')
+          d['__EVENTTARGET']='ctl00$ContentPlaceHolder1$3'; d['__EVENTARGUMENT']=''
+          r2=ss.post(u,data=d,verify=False,timeout=90,headers=H)
+          print('POST STATUS',r2.status_code,'LEN',len(r2.text),'URL',r2.url)
+          open('ug.html','w',encoding='utf-8').write(r2.text)
+          q=BeautifulSoup(r2.text,'html.parser')
+          out={'status':r2.status_code,'url':r2.url,'selects':[],'inputs':[],'tables':[],'links':[],'text':q.get_text(' ',strip=True)[:15000]}
+          for sel in q.find_all('select'):
             out['selects'].append({'id':sel.get('id'),'name':sel.get('name'),'options':[{'value':o.get('value'),'text':o.get_text(' ',strip=True)} for o in sel.find_all('option')]})
-          for inp in s.find_all('input'):
+          for inp in q.find_all('input'):
             if inp.get('type') in ['hidden','submit','button']:
               out['inputs'].append({'type':inp.get('type'),'id':inp.get('id'),'name':inp.get('name'),'value':inp.get('value')})
-          for i,t in enumerate(s.find_all('table')):
+          for i,t in enumerate(q.find_all('table')):
             rows=[]
-            for tr in t.find_all('tr')[:100]: rows.append([c.get_text(' ',strip=True) for c in tr.find_all(['th','td'])])
+            for tr in t.find_all('tr')[:200]: rows.append([c.get_text(' ',strip=True) for c in tr.find_all(['th','td'])])
             out['tables'].append({'index':i,'id':t.get('id'),'rows':rows})
-          for a in s.find_all('a',href=True):
-            if any(x in (a.get_text(' ',strip=True)+' '+a['href']).lower() for x in ['result','allot','vacant','seat']): out['links'].append({'text':a.get_text(' ',strip=True),'href':a['href']})
-          open('vseat.json','w',encoding='utf-8').write(json.dumps(out,ensure_ascii=False,indent=2))
-          print(json.dumps(out,ensure_ascii=False)[:50000])
+          for a in q.find_all('a',href=True): out['links'].append({'text':a.get_text(' ',strip=True),'href':a['href']})
+          open('ug.json','w',encoding='utf-8').write(json.dumps(out,ensure_ascii=False,indent=2))
+          print(json.dumps(out,ensure_ascii=False)[:60000])
           PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: up-vseat-diagnostic-correct
+          name: up-ug-allotted-diagnostic
           path: |
-            vseat.html
-            vseat.json
+            ug.html
+            ug.json
           retention-days: 1
