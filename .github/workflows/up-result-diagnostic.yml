@@ -1,0 +1,66 @@
+name: UP Result Diagnostic
+
+on:
+  push:
+    branches:
+      - tmp-up-result-scrape-2026-09-07
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Fetch and inspect UP result page
+        run: |
+          pip install requests beautifulsoup4 pandas lxml openpyxl
+          python - <<'PY'
+          import json, re, requests, pandas as pd
+          from bs4 import BeautifulSoup
+          url='https://upneet.gov.in/oncampusresultUG/resultuG.aspx'
+          s=requests.Session()
+          r=s.get(url, timeout=45, headers={'User-Agent':'Mozilla/5.0'})
+          print('STATUS', r.status_code, 'URL', r.url, 'LEN', len(r.text))
+          open('page.html','w',encoding='utf-8').write(r.text)
+          soup=BeautifulSoup(r.text,'html.parser')
+          out={
+            'status': r.status_code,
+            'url': r.url,
+            'title': soup.title.get_text(' ',strip=True) if soup.title else None,
+            'forms': [],
+            'selects': [],
+            'inputs': [],
+            'tables': []
+          }
+          for f in soup.find_all('form'):
+            out['forms'].append({'id':f.get('id'),'name':f.get('name'),'action':f.get('action'),'method':f.get('method')})
+          for sel in soup.find_all('select'):
+            opts=[]
+            for o in sel.find_all('option'):
+              opts.append({'value':o.get('value'),'text':o.get_text(' ',strip=True),'selected':o.has_attr('selected')})
+            out['selects'].append({'id':sel.get('id'),'name':sel.get('name'),'options':opts[:1000]})
+          for inp in soup.find_all('input'):
+            if inp.get('type') in ['submit','button','hidden']:
+              out['inputs'].append({'type':inp.get('type'),'id':inp.get('id'),'name':inp.get('name'),'value':inp.get('value')})
+          for i,t in enumerate(soup.find_all('table')):
+            rows=[]
+            for tr in t.find_all('tr')[:30]:
+              rows.append([c.get_text(' ',strip=True) for c in tr.find_all(['th','td'])])
+            out['tables'].append({'index':i,'id':t.get('id'),'class':t.get('class'),'rows':rows})
+          open('diagnostic.json','w',encoding='utf-8').write(json.dumps(out,ensure_ascii=False,indent=2))
+          print(json.dumps(out,ensure_ascii=False)[:20000])
+          PY
+      - name: Upload diagnostic
+        uses: actions/upload-artifact@v4
+        with:
+          name: up-result-diagnostic
+          path: |
+            page.html
+            diagnostic.json
+          retention-days: 1
