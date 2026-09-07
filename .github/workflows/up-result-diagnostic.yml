@@ -1,4 +1,4 @@
-name: UP Result Scrape
+name: UP Result Full Scrape
 on:
   push:
     branches: [tmp-up-result-scrape-2026-09-07]
@@ -12,36 +12,79 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: {python-version: '3.12'}
-      - name: Test one institute result table
+      - name: Scrape all Round 1 institutes
         run: |
           pip install requests beautifulsoup4
           python - <<'PY'
-          import json, requests, urllib3
+          import csv, json, re, time, requests, urllib3
           from bs4 import BeautifulSoup
-          urllib3.disable_warnings(); H={'User-Agent':'Mozilla/5.0'}
-          base='https://upneet.gov.in/vaccant_result/'; ss=requests.Session()
-          r=ss.get(base+'vseat_stream.aspx',verify=False,timeout=60,headers=H); s=BeautifulSoup(r.text,'html.parser')
-          d={x['name']:x.get('value','') for x in s.find_all('input') if x.get('name') and x.get('type')=='hidden'}; d['__EVENTTARGET']='ctl00$ContentPlaceHolder1$3'; d['__EVENTARGUMENT']=''
-          ss.post(base+'vseat_stream.aspx',data=d,verify=False,timeout=90,headers=H)
-          r=ss.get(base+'onallotmainCStatus.aspx',verify=False,timeout=90,headers=H); s=BeautifulSoup(r.text,'html.parser')
+          from concurrent.futures import ThreadPoolExecutor, as_completed
+          urllib3.disable_warnings()
+          H={'User-Agent':'Mozilla/5.0'}
+          base='https://upneet.gov.in/vaccant_result/'
+          ss=requests.Session()
+          r=ss.get(base+'vseat_stream.aspx',verify=False,timeout=60,headers=H)
+          s=BeautifulSoup(r.text,'html.parser')
           d={x['name']:x.get('value','') for x in s.find_all('input') if x.get('name') and x.get('type')=='hidden'}
-          d['ctl00$ContentPlaceHolder1$DDL_Institute']='021'; d['ctl00$ContentPlaceHolder1$Submit']='Submit'
-          r2=ss.post(base+'onallotmainCStatus.aspx',data=d,verify=False,timeout=120,headers=H)
-          print('STATUS',r2.status_code,'LEN',len(r2.text),'URL',r2.url)
-          open('one.html','w',encoding='utf-8').write(r2.text)
-          q=BeautifulSoup(r2.text,'html.parser'); out={'tables':[],'text':q.get_text(' ',strip=True)[:30000]}
-          for i,t in enumerate(q.find_all('table')):
-            rows=[]
-            for tr in t.find_all('tr')[:500]: rows.append([c.get_text(' ',strip=True) for c in tr.find_all(['th','td'])])
-            out['tables'].append({'index':i,'id':t.get('id'),'rows':rows})
-          open('one.json','w',encoding='utf-8').write(json.dumps(out,ensure_ascii=False,indent=2))
-          print(json.dumps(out,ensure_ascii=False)[:100000])
+          d['__EVENTTARGET']='ctl00$ContentPlaceHolder1$3'; d['__EVENTARGUMENT']=''
+          ss.post(base+'vseat_stream.aspx',data=d,verify=False,timeout=90,headers=H)
+          r=ss.get(base+'onallotmainCStatus.aspx',verify=False,timeout=90,headers=H)
+          s=BeautifulSoup(r.text,'html.parser')
+          form={x['name']:x.get('value','') for x in s.find_all('input') if x.get('name') and x.get('type')=='hidden'}
+          sel=s.find('select',{'name':'ctl00$ContentPlaceHolder1$DDL_Institute'})
+          institutes=[]
+          for o in sel.find_all('option'):
+            code=(o.get('value') or '').strip(); text=o.get_text(' ',strip=True)
+            if re.fullmatch(r'\d{3}',code):
+              name=re.sub(r'\s*\(\s*'+re.escape(code)+r'\s*\)\s*$','',text).strip()
+              institutes.append((code,name))
+          cookies=ss.cookies.get_dict()
+          print('INSTITUTES',len(institutes))
+          def fetch_one(item):
+            code,name=item
+            payload=dict(form); payload['ctl00$ContentPlaceHolder1$DDL_Institute']=code; payload['ctl00$ContentPlaceHolder1$Submit']='Submit'
+            err=''
+            for attempt in range(3):
+              try:
+                r=requests.post(base+'onallotmainCStatus.aspx',data=payload,cookies=cookies,verify=False,timeout=150,headers=H)
+                q=BeautifulSoup(r.text,'html.parser')
+                rows=[]
+                for t in q.find_all('table'):
+                  trs=t.find_all('tr')
+                  for tr in trs:
+                    cells=[c.get_text(' ',strip=True) for c in tr.find_all(['th','td'])]
+                    # Data row shape: Branch, Serial, merged Round/details, category, roll, name, father, Rank, date, left institute, left course
+                    if len(cells)>=9 and cells[0] in ('MBBS','BDS') and cells[1].isdigit():
+                      rank=cells[7].replace(',','').strip()
+                      if rank.isdigit(): rows.append({'rank':int(rank),'college':name,'branch':cells[0],'institute_code':code})
+                if rows or 'List of Allotted Candidates Institute Wise' in r.text:
+                  return code,name,rows,None
+                err='Unexpected page without allotment table'
+              except Exception as e:
+                err=repr(e)
+              time.sleep(1.5*(attempt+1))
+            return code,name,[],err
+          all_rows=[]; failures=[]; counts=[]
+          with ThreadPoolExecutor(max_workers=24) as ex:
+            futs={ex.submit(fetch_one,it):it for it in institutes}
+            done=0
+            for f in as_completed(futs):
+              code,name,rows,err=f.result(); done+=1
+              all_rows.extend(rows); counts.append({'code':code,'college':name,'rows':len(rows)})
+              if err: failures.append({'code':code,'college':name,'error':err})
+              print(f'DONE {done}/{len(institutes)} {code} rows={len(rows)} err={bool(err)}')
+          all_rows.sort(key=lambda x:(x['rank'],x['college'],x['branch']))
+          with open('up_round1_allotments.csv','w',newline='',encoding='utf-8-sig') as f:
+            w=csv.DictWriter(f,fieldnames=['rank','college','branch','institute_code']); w.writeheader(); w.writerows(all_rows)
+          json.dump({'total_rows':len(all_rows),'institute_count':len(institutes),'failures':failures,'counts':counts},open('audit.json','w',encoding='utf-8'),ensure_ascii=False,indent=2)
+          print('TOTAL_ROWS',len(all_rows),'FAILURES',len(failures))
+          print('FAILURE_DETAIL',json.dumps(failures,ensure_ascii=False))
           PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: up-one-institute
+          name: up-round1-full-results
           path: |
-            one.html
-            one.json
+            up_round1_allotments.csv
+            audit.json
           retention-days: 1
