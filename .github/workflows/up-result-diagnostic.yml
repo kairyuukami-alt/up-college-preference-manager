@@ -19,12 +19,12 @@ jobs:
           import json, requests, urllib3
           from bs4 import BeautifulSoup
           urllib3.disable_warnings()
-          u='https://upneet.gov.in/oncampusresult/vseat_stream.aspx'
-          r=requests.get(u,verify=False,timeout=45,headers={'User-Agent':'Mozilla/5.0'})
+          u='https://upneet.gov.in/vaccant_result/vseat_stream.aspx'
+          r=requests.get(u,verify=False,timeout=60,headers={'User-Agent':'Mozilla/5.0'})
           print('STATUS',r.status_code,'LEN',len(r.text),'URL',r.url)
           open('vseat.html','w',encoding='utf-8').write(r.text)
           s=BeautifulSoup(r.text,'html.parser')
-          out={'selects':[],'inputs':[],'tables':[],'text':s.get_text(' ',strip=True)[:10000]}
+          out={'status':r.status_code,'url':r.url,'selects':[],'inputs':[],'tables':[],'links':[],'text':s.get_text(' ',strip=True)[:10000]}
           for sel in s.find_all('select'):
             out['selects'].append({'id':sel.get('id'),'name':sel.get('name'),'options':[{'value':o.get('value'),'text':o.get_text(' ',strip=True)} for o in sel.find_all('option')]})
           for inp in s.find_all('input'):
@@ -34,13 +34,15 @@ jobs:
             rows=[]
             for tr in t.find_all('tr')[:100]: rows.append([c.get_text(' ',strip=True) for c in tr.find_all(['th','td'])])
             out['tables'].append({'index':i,'id':t.get('id'),'rows':rows})
+          for a in s.find_all('a',href=True):
+            if any(x in (a.get_text(' ',strip=True)+' '+a['href']).lower() for x in ['result','allot','vacant','seat']): out['links'].append({'text':a.get_text(' ',strip=True),'href':a['href']})
           open('vseat.json','w',encoding='utf-8').write(json.dumps(out,ensure_ascii=False,indent=2))
-          print(json.dumps(out,ensure_ascii=False)[:40000])
+          print(json.dumps(out,ensure_ascii=False)[:50000])
           PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: up-vseat-diagnostic
+          name: up-vseat-diagnostic-correct
           path: |
             vseat.html
             vseat.json
