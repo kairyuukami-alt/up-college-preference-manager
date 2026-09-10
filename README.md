@@ -1,93 +1,68 @@
-# vinext-starter
+# VidyaSaarthi Counselling Portal
 
-A clean full-stack starter running on [vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and Drizzle support.
+Student counselling operations, college preference lists, profiles, documents, results and round-wise tracking for the VidyaSaarthi team.
 
-## Prerequisites
+[Open the live portal](https://up-college-preference-manager.kairyuukami.chatgpt.site)
 
-- Node.js `>=22.13.0`
-- Linux with `flock`, `curl`, and GNU `timeout`
+## Included features
 
-## Sites Lifecycle
+- **Student Directory:** one record per student, multiple counselling enrolments, R1–R4 participation and progress, results and allotments, reporting, completion tags, follow-ups, counsellor assignment, CSV export, and reversible removal.
+- **Choice filling:** upload college master lists, prepare student preference lists, lock choices, manage PINs, recover saved versions, and print/export.
+- **Profiles and documents:** student-specific access, required-document checklists, review, profile locks and document downloads.
+- **Administration:** operations dashboard, counselling casework, tasks, finances, communication notes and announcements.
+- **Result Desk and schedules:** published result datasets, result import/search and counselling schedules. Official updates still require verification; the repository does not promise unattended monitoring.
 
-The Sites lifecycle CLI runs the locked dependency install before returning this checkout. Edit the source under `app/`, then checkpoint when a coherent milestone is ready to inspect or share. The remote Sites builder runs `npm run build` against the pushed commit. Do not repeat install or build as a normal pre-checkpoint step.
+The directory is an independent admin screen. Existing choice lists are linked explicitly; students are never merged solely because their names match. Round statuses and allotments are entered by an administrator. Removing a directory record preserves linked profiles and choices.
 
-This starter does not use `wrangler.jsonc`.
+## Repository structure
 
-`install:ci` is intentionally a single, non-retrying `npm ci`. It refuses a concurrent install for the same project, consumes a matching image-seeded npm cache with `--prefer-offline` while retaining registry fallback for a missing cache object, otherwise downloads and verifies the complete vinext tarball recorded in `package-lock.json`, limits npm to one socket, and terminates a stalled install. `build` applies a short timeout. These helpers target Linux and use GNU `timeout`; they are not native macOS scripts.
+| Path | Purpose |
+| --- | --- |
+| `app/` | Pages and server API routes |
+| `components/` | Portal screens and shared UI components |
+| `lib/` | Validation, authentication, counselling logic and bundled official data |
+| `db/` | D1 access and schema declarations |
+| `drizzle/` | Versioned database migrations and snapshots |
+| `public/` | Brand images and static assets |
+| `worker/`, `build/` | Cloudflare Worker entry point and build integration |
+| `.openai/hosting.json` | Existing Sites identity and logical storage bindings |
+| `tests/` | Privacy contracts, directory API/database tests and UI checks |
+| `.github/` | Build workflow, issue forms and PR template |
+| `docs/` | Architecture, development, release and operational guidance |
 
-Scripts that need writable project-scoped home, npm, XDG, and temporary paths use `scripts/sites-env.sh`. The `dev` and `start` scripts honor the caller's runtime environment and keep Wrangler logs inside the checkout. The generated `.sites-runtime/` directory is disposable and ignored by Git.
+## Development
 
-## Included Shape
+Use **Node.js 24** and npm on Linux or WSL. Installation and build helpers use `bash`, `curl`, `flock` and GNU `timeout`.
 
-- edit site code under `app/`
-- `app/chatgpt-auth.ts` provides optional dispatch-owned ChatGPT sign-in helpers
-- `.openai/hosting.json` declares optional Sites D1 and R2 bindings
-- `vite.config.ts` simulates declared bindings for local development
-- `db/index.ts` reads the D1 binding from the Cloudflare Worker environment
-- `db/schema.ts` starts intentionally empty
-- `examples/d1/` contains an optional D1 example surface
-- `drizzle.config.ts` supports local migration generation when needed
-
-## Workspace Auth Headers
-
-OpenAI workspace sites can read the current user's email from `oai-authenticated-user-email`.
-
-SIWC-authenticated workspace sites may also receive `oai-authenticated-user-full-name` when the user's SIWC profile has a non-empty `name` claim. The full-name value is percent-encoded UTF-8 and is accompanied by `oai-authenticated-user-full-name-encoding: percent-encoded-utf-8`.
-
-Treat the full name as optional and fall back to email when it is absent:
-
-```tsx
-import { headers } from "next/headers";
-
-export default async function Home() {
-  const requestHeaders = await headers();
-  const email = requestHeaders.get("oai-authenticated-user-email");
-  const encodedFullName = requestHeaders.get("oai-authenticated-user-full-name");
-  const fullName =
-    encodedFullName &&
-    requestHeaders.get("oai-authenticated-user-full-name-encoding") ===
-      "percent-encoded-utf-8"
-      ? decodeURIComponent(encodedFullName)
-      : null;
-
-  const displayName = fullName ?? email;
-  // ...
-}
+```bash
+npm ci
+npm run build
+node --test tests/*.test.mjs
+npm run dev
 ```
 
-## Optional Dispatch-Owned ChatGPT Sign-In
+The package lockfile is authoritative. To use the bounded Sites installation helper, run `npm run install:ci`. A restricted local network may prevent downloads; a successful Sites remote build is a separate publication path, not a reason to replace locked dependencies.
 
-Import the ready-to-use helpers from `app/chatgpt-auth.ts` when the site needs optional or required ChatGPT sign-in:
+`npm run dev` starts the local app with simulated Cloudflare bindings. Database-backed screens additionally need local D1 migrations and a **local-only** administrator password. See [Development](docs/DEVELOPMENT.md). Never use production data or credentials for local tests.
 
-- Use `getChatGPTUser()` for optional signed-in UI.
-- Use `requireChatGPTUser(returnTo)` for server-rendered pages that should send anonymous visitors through Sign in with ChatGPT.
-- In a Server Component, start sign-in with `<a href={chatGPTSignInPath(returnTo)} target="_top">`. The auth helper module is server-only; do not import it into a Client Component.
-- Do not use `fetch`, XHR, a client-side router, or a framework link that can prefetch the sign-in route. SIWC must start as a top-level navigation.
-- Never request the AuthAPI authorization endpoint directly. The dispatch-owned `/signin-with-chatgpt` route must start the SIWC flow.
-- Use `chatGPTSignOutPath(returnTo)` for browser sign-out links or actions.
-- Pass a same-origin relative `returnTo` path for the destination after sign-in or sign-out. The helper validates and safely encodes it.
-- Mark protected pages with `export const dynamic = "force-dynamic"` because they depend on per-request identity headers.
+## Branches and releases
 
-Dispatch owns `/signin-with-chatgpt`, `/signout-with-chatgpt`, `/callback`, the OAuth cookies, and identity header injection. Do not implement app routes for those reserved paths. Routes that do not import and call the helper remain anonymous-compatible.
+- `main`: reviewed source baseline, initially synced from the live Student Directory release.
+- `develop`: integration branch for upcoming work.
+- `release/2026-09-10`: snapshot of the published Student Directory release source.
+- `backup/pre-github-sync-2026-09-10`: original GitHub state preserved before this sync.
+- `feature/<topic>` and `fix/<topic>`: create from `develop`, open a PR back to `develop`, then promote reviewed changes to `main`.
 
-SIWC establishes identity only; it does not prove workspace membership. Use the Sites hosting platform's access policy controls for workspace-wide restrictions, or enforce explicit server-side membership or allowlist checks.
+GitHub Actions builds and tests pushes to `main`, `develop` and release branches, and pull requests. **A GitHub push does not publish the Sites website.** Follow the [release process](docs/RELEASES.md).
 
-Use SIWC for account pages, user-specific dashboards, saved records, and write actions tied to the current ChatGPT user. Leave public content anonymous.
+## Data and configuration
 
-## Diagnostic Commands
+D1 stores live student records and R2 stores uploaded documents. These are not repository files. The GitHub source includes existing bundled official result datasets and brand assets, but no live database dump, uploaded student documents, session cookies or runtime passwords.
 
-- `npm run install:ci`: perform the one bounded lockfile install
-- `npm run dev`: start the Vite/Vinext development server
-- `npm run build`: build the deployable Sites artifact
-- `npm run start`: start the built Vinext application
-- `npm test`: build and verify the rendered development-preview metadata
-- `npm run db:generate`: generate Drizzle migrations after schema changes
+Configure `PREFERENCE_UNLOCK_PASSWORD` as a hosted secret through Sites. D1 and R2 bindings are named `DB` and `BUCKET`. The public homepage and private admin/student sessions retain the existing access model.
 
-Use build commands for targeted diagnosis after a remote failure, not as part of the normal checkpoint path.
+See [Architecture](docs/ARCHITECTURE.md), [Contributing](CONTRIBUTING.md), [Security](SECURITY.md), and [Operations](docs/OPERATIONS.md).
 
-The timeout defaults can be overridden for a controlled canary with `SITES_INSTALL_TIMEOUT`, `SITES_INSTALL_KILL_AFTER`, `SITES_BUILD_TIMEOUT`, and `SITES_BUILD_KILL_AFTER`. A timeout fails the command; the helpers never retry an unchanged install or build.
+## Source provenance
 
-## Learn More
-
-- [vinext Documentation](https://github.com/cloudflare/vinext)
-- [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
+Application source was imported from published Sites source commit `51cb589ed19281ee04c8f99d00ec5271985b4e11` (Student Directory release, 10 September 2026). GitHub keeps its existing initial commit as the parent of the import; Sites history remains in the Sites source repository. GitHub-specific documentation and automation are maintained alongside the imported application source.

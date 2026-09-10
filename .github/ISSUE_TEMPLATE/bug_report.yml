@@ -1,0 +1,28 @@
+name: Bug report
+description: Report a portal problem using anonymised details.
+title: '[Bug]: '
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      options: [Student Directory, Choice Filling, Profiles and Documents, Result Desk, Schedules, Login, Other]
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Use a test student. Do not include passwords, phone numbers or student documents.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and device

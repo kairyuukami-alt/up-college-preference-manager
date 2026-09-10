@@ -1,0 +1,2 @@
+# Local development only. Use a disposable test value compatible with the current login form.
+PREFERENCE_UNLOCK_PASSWORD=
